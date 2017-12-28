@@ -111,7 +111,7 @@ app.put('/movie', function (req, res){
     var connection = pool.getConnection(function(err, connection) {
     var now = new Date();
     var prepared = mysql.format(constants.MYSQL_QUERY_INSERT_WATCHED,
-      [_.upperFirst(req.body.name.toLowerCase()), req.body.year, req.body.user_rating, 1, now, req.body.user_rating, now]);
+      [_.startCase(req.body.name.toLowerCase()), req.body.year, req.body.user_rating, 1, now, req.body.user_rating, now]);
     connection.query(prepared, function (error, results, fields) {
       if (error) {
           console.log(util.format(constants.MYSQL_LOG_ERROR, error));
