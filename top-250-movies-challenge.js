@@ -27,6 +27,7 @@ var constants = {
   TOP_250_ERROR: "Error getting top 250: %j",
   FIRST_MOVIE_YEAR: 1890,
   HEADER_CONTENT_TYPE: "application/json",
+  HEADER_CONTENT_TYPE_NAME: 'content-type',
   ERROR_VALIDATION: "At least one parameter is invalid."
 };
 
@@ -107,12 +108,12 @@ app.get('/movies', function(req, res){
   });
 });
 
-function isValidParameters (body, headers) {
+function isValidParameters (body, contentType) {
   var valid = true;
   if (_.isEmpty(body.name) || 
       !_.isNumber(body.year) || body.year >= (new Date()).getFullYear() || body.year < constants.FIRST_MOVIE_YEAR  ||
       !_.isNumber(body.user_rating) || body.user_rating >= 10 || body.user_rating < 0 ||
-      headers.content-type !== constants.HEADER_CONTENT_TYPE) {
+      contentType!== constants.HEADER_CONTENT_TYPE) {
         return !valid;
       }
     return valid;
@@ -124,7 +125,7 @@ app.put('/movie', function (req, res){
   }
   var body = req.body;
   console.log(req);
-  if (!isValidParameters(body, req.headers)) {
+  if (!isValidParameters(body, req.get(constants.HEADER_CONTENT_TYPE_NAME))) {
     console.log(util.format("%s \n body:%j \n headers: %j",constants.ERROR_VALIDATION, body, headers));
     res.status(httpStatusCodes.BAD_REQUEST).json({error: constants.ERROR_VALIDATION});
     return;
