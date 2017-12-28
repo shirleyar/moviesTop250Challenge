@@ -1,42 +1,59 @@
 var express = require('express');
 var request = require('request');
-var app     = express();
+var app = express();
 var Webtask = require('webtask-tools');
 var mysql = require('mysql');
 var bodyParser = require('body-parser');
 var util = require('util');
 var _ = require('lodash');
-var imdbApi = require('imdb-api');
-var bluebird = require('bluebird');
+var httpStatusCodes = require('http-status-codes');
 
 var connectionRecieved;
-var statusMySql = 'down';
 var pool;
+
+var constants = {
+  UP: 'up',
+  DOWN: 'down',
+  STOP_INIT: "Already up. Stop initializing.",
+  CONNECTION_LIMIT: 20,
+  CONNECTED: "MYSQL CONNECTED!",
+  MYSQL_LOG_ERROR: "mysql error:%j",
+  ERROR_UNINITIALIZED: "Service uninitialized",
+  MYSQL_QUERY_SINGLE_WATCHED: 'SELECT * FROM sql11212380.Watched_Movies WHERE name LIKE ? AND year = ?;',
+  MYSQL_QUERY_ALL_WATCHED:"SELECT * FROM sql11212380.Watched_Movies;",
+  MYSQL_QUERY_INSERT_WATCHED: 'INSERT INTO sql11212380.Watched_Movies (name, year, user_rating, times_watched, date_last_watched) VALUES (?, ?, ?, ? ,?) ON DUPLICATE KEY UPDATE user_rating=?, times_watched=times_watched+1, date_last_watched= ?;',
+  ERROR_SOMETHING_WRONG: {error: "Something Went wrong. Check logs"},
+  TOP_250_URL: 'https://wt-ecc23095b9cdb4fdab9ca8952aef045f-0.run.webtask.io/imdb-top250-node',
+  TOP_250_ERROR: "Error getting top 250: %j"
+};
+
+var statusMySql = constants.DOWN;
 
 app.use(bodyParser.json());
 
-app.get('/init', function(req, res){
-  if (statusMySql === 'up'){
-    res.json({status:"Already up. Stop initializing."});
+app.post('/init', function(req, res){
+  if (statusMySql === constants.UP){
+    res.json({status: constants.STOP_INIT});
   } else {
+     var secrets = req.webtaskContext.data;
     pool = mysql.createPool({
-      connectionLimit: 20,
-      host: 'sql11.freesqldatabase.com',
-      user: 'sql11212380',
-      password: 'ARJKJBntgp',
-      database: 'sql11212380',
+      connectionLimit: constants.CONNECTION_LIMIT,
+      host: secrets.mySqlHost,
+      user: secrets.mySqlUser,
+      password: secrets.mySqlPassword,
+      database: secrets.mySqlDb,
     });
     pool.getConnection(function(err, connection) {
       if (!err){
-      console.log("MYSQL CONNECTED!");
+      console.log(constants.CONNECTED);
       connectionRecieved = connection;
-      statusMySql='up';
+      statusMySql=constants.UP;
       res.json({
         status: statusMySql
       });
       } else {
-      console.log("mysql error:" + err);
-      res.status(500).json({
+      console.log(util.format(constants.MYSQL_LOG_ERROR, err));
+      res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({
         status: statusMySql,
         error: error 
       });
@@ -45,38 +62,42 @@ app.get('/init', function(req, res){
   }
 });
 
-app.get('/movie/:name/year/:year', function(req, res){
-    if (statusMySql !== 'up') {
-      res.status(400).json ({
-        error: "Service uninitialized"
+function blockIfNotInitialized(res) {
+   if (statusMySql !== constants.UP) {
+      res.status(httpStatusCodes.BAD_REQUEST).json ({
+        error: constants.ERROR_UNINITIALIZED
       });
-      return;
+      return true;
     }
-    connectionRecieved.query('SELECT * FROM sql11212380.Watched_Movies WHERE name LIKE ? AND year = ?;',[req.params.name, req.params.year], function(error, results, fields) {
-      if (error) {
-        console.log('Error while querying DB: %j', error);
-          res.status(500).json({
+    return false;
+}
+
+app.get('/movie/:name/year/:year', function(req, res){
+    if (blockIfNotInitialized(res)){
+    return;
+  }
+    connectionRecieved.query(constants.MYSQL_QUERY_SINGLE_WATCHED,
+      [req.params.name, req.params.year], 
+      function(error, results, fields) {
+       if (error) {
+        console.log(util.format(constants.MYSQL_LOG_ERROR, error));
+          res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({
             error: error
           });
       } else {
-        res.json(results[0]);
-    }
+        _.isEmpty(results) ? res.status(httpStatusCodes.NOT_FOUND).json({}): res.json(results[0]);
+      }
     });
 });
 
-app.get('/all_watched', function(req, res){
-  if (statusMySql !== 'up') {
-      res.status(400).json ({
-        error: "Service uninitialized"
-      });
-      return;
-    }
-    connectionRecieved.query( "SELECT * FROM sql11212380.Watched_Movies;", function(error, results, fields) {
+app.get('/movies', function(req, res){
+  if (blockIfNotInitialized(res)){
+    return;
+  }
+    connectionRecieved.query(constants.MYSQL_QUERY_ALL_WATCHED, function(error, results, fields) {
   if (error) {
-        console.log('Error while querying DB: %j', error);
-          res.status(500).json({
-            error: error
-          });
+        console.log(util.format(constants.MYSQL_LOG_ERROR, error));
+          res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
       } else {
         res.json(results);
     }
@@ -84,30 +105,24 @@ app.get('/all_watched', function(req, res){
 });
 
 app.put('/movie', function (req, res){
-  if (statusMySql !== 'up') {
-      res.status(400).json ({
-        error: "Service uninitialized"
-      });
-      return;
-    }
+  if (blockIfNotInitialized(res)){
+    return;
+  }
     var connection = pool.getConnection(function(err, connection) {
     var now = new Date();
-    var prepared = mysql.format('INSERT INTO sql11212380.Watched_Movies (name, year, user_rating, times_watched, date_last_watched) VALUES (?, ?, ?, ? ,?) ON DUPLICATE KEY UPDATE user_rating=?, times_watched=times_watched+1, date_last_watched= ?;', [req.body.name, req.body.year, req.body.user_rating, 1, now, req.body.user_rating, now]);
-      connection.query(prepared, function (error, results, fields) {
+    var prepared = mysql.format(constants.MYSQL_QUERY_INSERT_WATCHED,
+      [_.upperFirst(req.body.name.toLowerCase()), req.body.year, req.body.user_rating, 1, now, req.body.user_rating, now]);
+    connection.query(prepared, function (error, results, fields) {
       if (error) {
-          console.log('Error while inserting to DB: %j', error);
-            res.status(500).json({
-              error: error
-            });
+          console.log(util.format(constants.MYSQL_LOG_ERROR, error));
+            res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
         } else {
-          connection.query('SELECT * FROM sql11212380.Watched_Movies WHERE name LIKE ? AND year = ?;',[req.body.name, req.body.year], function(error, results, fields) {
+          connection.query(constants.MYSQL_QUERY_SINGLE_WATCHED,[req.body.name, req.body.year], function(error, results, fields) {
             if (error) {
-            console.log('Error while querying DB: %j', error);
-            res.status(500).json({
-                error: error
-            });
+            console.log(util.format(constants.MYSQL_LOG_ERROR, error));
+            res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
           } else {
-            res.status(201).json(results[0]);
+            _.isEmpty(results) ? res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG) : res.json(results[0]);
             }
         }); 
       }
@@ -116,33 +131,37 @@ app.put('/movie', function (req, res){
 });
 
 app.get('/movie/next', function(req, res){
-  if (statusMySql !== 'up') {
-    res.status(400).json ({ error: "Service uninitialized"});
+  if (blockIfNotInitialized(res)){
     return;
   }
-  connectionRecieved.query('SELECT * FROM sql11212380.Watched_Movies;', function(error, results, fields) {
+  connectionRecieved.query(constants.MYSQL_QUERY_ALL_WATCHED, function(error, results, fields) {
     if (error) {
-      console.log('Error while querying DB: %j', error);
-      res.status(500).json({error: error});
+      console.log(util.format(constants.MYSQL_LOG_ERROR, error));
+      res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
     } else {
         var watchedMovies = results;
         request.get({
-          url: 'https://wt-ecc23095b9cdb4fdab9ca8952aef045f-0.run.webtask.io/imdb-top250-node'
+          url: constants.TOP_250_URL
         }, function(err, response) {
             if (err) {
-              console.log(util.format("Error getting top 250: %j", err));
-              res.status(500).json({error: err});
+              console.log(util.format(constants.TOP_250_ERROR, err));
+              res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: err});
               return;
             } 
+            try {
             var top250Movies = JSON.parse(response.body);
             var topUnWatchedMovies = _.filter(top250Movies, function(movie) {
-              return !_.includes(watchedMovies, movie);});
-            
-            res.json (topUnWatchedMovies[0]);
+              return !watchedMovies.find(function(watchedMovie){
+                return movie.name.toLowerCase() === watchedMovie.name.toLowerCase() && movie.year=== watchedMovie.year.toString();
+              })});
+            res.json (topUnWatchedMovies[0] || {});
+            } catch (error) {
+                console.log(error);
+                res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
+            }
       });
     }
   });
 });
-
 
  module.exports = Webtask.fromExpress(app);
