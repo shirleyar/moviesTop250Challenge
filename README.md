@@ -6,11 +6,11 @@ https://wt-ecc23095b9cdb4fdab9ca8952aef045f-0.run.webtask.io/top250MoviesChallen
 
 ###Endpoints
 
-#####POST: /    
+##### POST: /    
 Initializes the service.
 Must be first opertion performed.
 
-#####PUT: /movie     
+##### PUT: /movie     
 Inserts a movie to the watched list or updates an already watched movie.     
     
 Body:    (all properties are mandatory)
