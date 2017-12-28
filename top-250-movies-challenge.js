@@ -18,7 +18,7 @@ var constants = {
   CONNECTION_LIMIT: 20,
   CONNECTED: "MYSQL CONNECTED!",
   MYSQL_LOG_ERROR: "mysql error:%j",
-  ERROR_UNINITIALIZED: "Service uninitialized",
+  ERROR_UNINITIALIZED: "Service uninitialized. Send a POST request to '/init' first",
   MYSQL_QUERY_SINGLE_WATCHED: 'SELECT * FROM sql11212380.Watched_Movies WHERE name LIKE ? AND year = ?;',
   MYSQL_QUERY_ALL_WATCHED:"SELECT * FROM sql11212380.Watched_Movies;",
   MYSQL_QUERY_INSERT_WATCHED: 'INSERT INTO sql11212380.Watched_Movies (name, year, user_rating, times_watched, date_last_watched) VALUES (?, ?, ?, ? ,?) ON DUPLICATE KEY UPDATE user_rating=?, times_watched=times_watched+1, date_last_watched= ?;',
@@ -28,7 +28,7 @@ var constants = {
   FIRST_MOVIE_YEAR: 1890,
   HEADER_CONTENT_TYPE: "application/json",
   HEADER_CONTENT_TYPE_NAME: 'content-type',
-  ERROR_VALIDATION: "At least one parameter is invalid."
+  ERROR_VALIDATION: "At least one parameter is invalid. Check logs"
 };
 
 var statusMySql = constants.DOWN;
@@ -57,10 +57,7 @@ app.post('/init', function(req, res){
       });
       } else {
       console.log(util.format(constants.MYSQL_LOG_ERROR, err));
-      res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({
-        status: statusMySql,
-        error: error 
-      });
+      res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
     }
     });
   }
@@ -85,9 +82,7 @@ app.get('/movie/:name/year/:year', function(req, res){
       function(error, results, fields) {
        if (error) {
         console.log(util.format(constants.MYSQL_LOG_ERROR, error));
-          res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({
-            error: error
-          });
+          res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
       } else {
         _.isEmpty(results) ? res.status(httpStatusCodes.NOT_FOUND).json({}): res.json(results[0]);
       }
@@ -101,7 +96,7 @@ app.get('/movies', function(req, res){
     connectionRecieved.query(constants.MYSQL_QUERY_ALL_WATCHED, function(error, results, fields) {
   if (error) {
         console.log(util.format(constants.MYSQL_LOG_ERROR, error));
-          res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
+          res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
       } else {
         res.json(results);
     }
@@ -124,7 +119,6 @@ app.put('/movie', function (req, res){
     return;
   }
   var body = req.body;
-  console.log(req);
   if (!isValidParameters(body, req.get(constants.HEADER_CONTENT_TYPE_NAME))) {
     console.log(util.format("%s \n body:%j \n %s: %j",constants.ERROR_VALIDATION, body, constants.HEADER_CONTENT_TYPE_NAME, constants.HEADER_CONTENT_TYPE));
     res.status(httpStatusCodes.BAD_REQUEST).json({error: constants.ERROR_VALIDATION});
@@ -137,12 +131,12 @@ app.put('/movie', function (req, res){
     connection.query(prepared, function (error, results, fields) {
       if (error) {
           console.log(util.format(constants.MYSQL_LOG_ERROR, error));
-            res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
+            res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
         } else {
           connection.query(constants.MYSQL_QUERY_SINGLE_WATCHED,[req.body.name, req.body.year], function(error, results, fields) {
             if (error) {
             console.log(util.format(constants.MYSQL_LOG_ERROR, error));
-            res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
+            res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
           } else {
             _.isEmpty(results) ? res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG) : res.json(results[0]);
             }
@@ -159,7 +153,7 @@ app.get('/movie/next', function(req, res){
   connectionRecieved.query(constants.MYSQL_QUERY_ALL_WATCHED, function(error, results, fields) {
     if (error) {
       console.log(util.format(constants.MYSQL_LOG_ERROR, error));
-      res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: error});
+      res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
     } else {
         var watchedMovies = results;
         request.get({
@@ -167,7 +161,7 @@ app.get('/movie/next', function(req, res){
         }, function(err, response) {
             if (err) {
               console.log(util.format(constants.TOP_250_ERROR, err));
-              res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json({error: err});
+              res.status(httpStatusCodes.INTERNAL_SERVER_ERROR).json(constants.ERROR_SOMETHING_WRONG);
               return;
             } 
             try {
