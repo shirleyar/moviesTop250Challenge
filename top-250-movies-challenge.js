@@ -126,7 +126,7 @@ app.put('/movie', function (req, res){
   var body = req.body;
   console.log(req);
   if (!isValidParameters(body, req.get(constants.HEADER_CONTENT_TYPE_NAME))) {
-    console.log(util.format("%s \n body:%j \n headers: %j",constants.ERROR_VALIDATION, body, headers));
+    console.log(util.format("%s \n body:%j \n %s: %j",constants.ERROR_VALIDATION, body, constants.HEADER_CONTENT_TYPE_NAME, constants.HEADER_CONTENT_TYPE));
     res.status(httpStatusCodes.BAD_REQUEST).json({error: constants.ERROR_VALIDATION});
     return;
   }
