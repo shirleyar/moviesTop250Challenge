@@ -24,7 +24,10 @@ var constants = {
   MYSQL_QUERY_INSERT_WATCHED: 'INSERT INTO sql11212380.Watched_Movies (name, year, user_rating, times_watched, date_last_watched) VALUES (?, ?, ?, ? ,?) ON DUPLICATE KEY UPDATE user_rating=?, times_watched=times_watched+1, date_last_watched= ?;',
   ERROR_SOMETHING_WRONG: {error: "Something Went wrong. Check logs"},
   TOP_250_URL: 'https://wt-ecc23095b9cdb4fdab9ca8952aef045f-0.run.webtask.io/imdb-top250-node',
-  TOP_250_ERROR: "Error getting top 250: %j"
+  TOP_250_ERROR: "Error getting top 250: %j",
+  FIRST_MOVIE_YEAR: 1890,
+  HEADER_CONTENT_TYPE: "application/json",
+  ERROR_VALIDATION: "At least one parameter is invalid."
 };
 
 var statusMySql = constants.DOWN;
@@ -104,13 +107,30 @@ app.get('/movies', function(req, res){
   });
 });
 
+function isValidParameters (body, headers) {
+  var valid = true;
+  if (_.isEmpty(body.name) || 
+      !_.isNumber(body.year) || body.year >= (new Date()).getFullYear() || body.year < constants.FIRST_MOVIE_YEAR  ||
+      !_.isNumber(body.user_rating) || body.user_rating >= 10 || body.user_rating < 0 ||
+      headers.content-type !== constants.HEADER_CONTENT_TYPE) {
+        return !valid;
+      }
+    return valid;
+}
+
 app.put('/movie', function (req, res){
   if (blockIfNotInitialized(res)){
     return;
   }
-    var connection = pool.getConnection(function(err, connection) {
-    var now = new Date();
-    var prepared = mysql.format(constants.MYSQL_QUERY_INSERT_WATCHED,
+  var body = req.body;
+  if (!isValidParameters(body, req.header)) {
+    console.log(util.format("%s \n body:%j \n headers: %j",constants.ERROR_VALIDATION, body, headers));
+    res.status(httpStatusCodes.BAD_REQUEST).json({error: constants.ERROR_VALIDATION});
+    return;
+  }
+  var connection = pool.getConnection(function(err, connection) {
+  var now = new Date();
+  var prepared = mysql.format(constants.MYSQL_QUERY_INSERT_WATCHED,
       [_.startCase(req.body.name.toLowerCase()), req.body.year, req.body.user_rating, 1, now, req.body.user_rating, now]);
     connection.query(prepared, function (error, results, fields) {
       if (error) {
